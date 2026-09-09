@@ -35,7 +35,9 @@ ORDER BY spent_on DESC, created_at DESC
 `;
 
 // One row per (month, currency) — never summed across currencies. $limit
-// bounds rows directly since each row is already a single currency's total.
+// counts MONTHS, not rows: a month spanning several currencies is several
+// rows, so the month set is picked first and every currency of an included
+// month comes back.
 export const MONTHLY_TOTALS = `
 SELECT
   strftime('%Y-%m', spent_on) AS month,
@@ -43,9 +45,11 @@ SELECT
   SUM(amount_minor) AS total_minor,
   COUNT(*) AS n
 FROM receipts
+WHERE strftime('%Y-%m', spent_on) IN (
+  SELECT DISTINCT strftime('%Y-%m', spent_on) FROM receipts ORDER BY 1 DESC LIMIT $limit
+)
 GROUP BY month, currency
-ORDER BY month DESC
-LIMIT $limit
+ORDER BY month DESC, currency
 `;
 
 export const CATEGORY_BREAKDOWN = `

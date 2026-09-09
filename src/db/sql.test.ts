@@ -113,6 +113,33 @@ describe('MONTHLY_TOTALS', () => {
     expect(row.total_minor).toBe(3);
     expect(Number.isInteger(row.total_minor)).toBe(true);
   });
+
+  // Regression: LIMIT bounded ROWS, but this groups by month AND currency, so
+  // one month spanning two currencies is two rows. Asking for 6 months could
+  // silently return 3. The fixture that let this through was single-currency,
+  // where rows and months happen to be the same number.
+  it('limits by month, not by row, when a month spans several currencies', () => {
+    for (const m of ['04', '05', '06', '07', '08', '09']) {
+      insert({ $spent_on: `2026-${m}-10`, $currency: 'PKR', $amount_minor: 100000 });
+      insert({ $spent_on: `2026-${m}-11`, $currency: 'USD', $amount_minor: 1000 });
+    }
+    const rows = db.query(MONTHLY_TOTALS).all({ $limit: 3 } as never) as Array<Row>;
+    const months = [...new Set(rows.map((r) => r.month))];
+    expect(months).toEqual(['2026-09', '2026-08', '2026-07']);
+    expect(rows).toHaveLength(6);
+  });
+
+  it('returns every currency of the oldest month it includes', () => {
+    // The boundary month must not be half-reported: whichever months make the
+    // cut, all of their currencies come back.
+    insert({ $spent_on: '2026-09-01', $currency: 'PKR', $amount_minor: 100000 });
+    insert({ $spent_on: '2026-08-01', $currency: 'PKR', $amount_minor: 200000 });
+    insert({ $spent_on: '2026-08-02', $currency: 'USD', $amount_minor: 3000 });
+    insert({ $spent_on: '2026-08-03', $currency: 'EUR', $amount_minor: 4000 });
+    const rows = db.query(MONTHLY_TOTALS).all({ $limit: 2 } as never) as Array<Row>;
+    const aug = rows.filter((r) => r.month === '2026-08').map((r) => r.currency).sort();
+    expect(aug).toEqual(['EUR', 'PKR', 'USD']);
+  });
 });
 
 describe('CATEGORY_BREAKDOWN', () => {

@@ -25,9 +25,10 @@ function monthLabel(month: string): string {
 type Props = {
   onAdd: () => void;
   onEdit: (receipt: ReceiptRow) => void;
+  onCharts: () => void;
 };
 
-export default function HomeScreen({ onAdd, onEdit }: Props) {
+export default function HomeScreen({ onAdd, onEdit, onCharts }: Props) {
   const insets = useSafeAreaInsets();
   const [receipts, setReceipts] = useState<ReceiptRow[] | null>(null);
   const [totals, setTotals] = useState<MonthTotal[]>([]);
@@ -118,6 +119,17 @@ export default function HomeScreen({ onAdd, onEdit }: Props) {
         ))}
       </ScrollView>
 
+      {/* Expo Go's dev-menu gear overlays the whole top-right corner of the
+          screen, above our view hierarchy -- unreadable/untappable there
+          (same reason the + FAB lives bottom-right instead of top-right).
+          So Charts goes bottom-left, mirroring the FAB. */}
+      <Pressable
+        style={[styles.chartsButton, { left: 24, bottom: insets.bottom + 24 }]}
+        onPress={onCharts}
+      >
+        <Text style={styles.chartsButtonText}>Charts</Text>
+      </Pressable>
+
       <Pressable
         style={[styles.fab, { right: 24, bottom: insets.bottom + 24 }]}
         onPress={onAdd}
@@ -155,6 +167,25 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   fabText: { color: colors.accentText, fontSize: 28, fontWeight: '600', lineHeight: 32 },
+  // Same pill treatment as the FAB, but sized for a word instead of a glyph:
+  // fixed 56 height to share the FAB's baseline, rounded ends via a radius
+  // half that height, and horizontal padding instead of a fixed width.
+  chartsButton: {
+    position: 'absolute',
+    height: 56,
+    paddingHorizontal: 20,
+    borderRadius: 28,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    elevation: 10,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  chartsButtonText: { color: colors.accentText, fontSize: 16, fontWeight: '600' },
   error: { color: colors.danger, marginHorizontal: 16, marginBottom: 8, fontSize: 14 },
   scrollContent: { paddingBottom: 32 },
   empty: { padding: 32, alignItems: 'center', gap: 4 },

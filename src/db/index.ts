@@ -69,6 +69,8 @@ export async function listReceipts(): Promise<ReceiptRow[]> {
   return db.getAllAsync<ReceiptRow>(LIST_RECEIPTS);
 }
 
+// limit is a count of MONTHS, not rows — a month with several currencies
+// returns several rows, all included.
 export async function monthlyTotals(limit = 6): Promise<MonthTotal[]> {
   const db = await getDb();
   return db.getAllAsync<MonthTotal>(MONTHLY_TOTALS, { $limit: limit });

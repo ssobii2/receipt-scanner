@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { isoMinorDigits, parseAmountToMinor, formatMoney } from './money';
+import { isoMinorDigits, parseAmountToMinor, formatMoney, normalizeAmountText } from './money';
 
 // WHY A TABLE AND NOT Intl:
 // Intl reports CLDR *display* digits, which encode local writing convention and
@@ -39,9 +39,10 @@ describe('isoMinorDigits', () => {
   });
 });
 
-// Gemini returns total_value already normalised: plain decimal, '.' separator,
-// no grouping. It sees the receipt's language and country, so it disambiguates
-// "1.234" far better than a regex could. This parser accepts only that form.
+// The extraction model returns total_value already normalised: plain decimal,
+// '.' separator, no grouping. It sees the receipt's language and country, so
+// it disambiguates "1.234" far better than a regex could. This parser accepts
+// only that form.
 describe('parseAmountToMinor', () => {
   it('scales a canonical decimal string by the ISO exponent', () => {
     expect(parseAmountToMinor('1850.00', 'PKR')).toBe(185000);
@@ -164,5 +165,93 @@ describe('integer safety', () => {
     expect(Number.isSafeInteger(9007199254740994)).toBe(false);
     const out = formatMoney(9007199254740994, 'USD', 'en-US');
     expect(out).toContain('90,071,992,547,409.94');
+  });
+});
+
+// Real receipts do not print the canonical form the parser demands. A live
+// test on a physical receipt came back with the amount field empty even
+// though the currency was read correctly -- the total was there, printed
+// with grouping separators, and parseAmountToMinor rejected it.
+//
+// parseAmountToMinor stays strict on purpose: it is the last gate before an
+// integer is persisted. normalizeAmountText is the separate, explicit step
+// that turns printed money into that canonical form, and returns null rather
+// than guessing when a string is genuinely ambiguous.
+describe('normalizeAmountText', () => {
+  it('passes canonical input through untouched', () => {
+    expect(normalizeAmountText('1234.50')).toBe('1234.50');
+    expect(normalizeAmountText('0.99')).toBe('0.99');
+    expect(normalizeAmountText('3450')).toBe('3450');
+  });
+
+  it('strips currency symbols and codes printed alongside the number', () => {
+    expect(normalizeAmountText('Rs 3450.75')).toBe('3450.75');
+    expect(normalizeAmountText('£47.80')).toBe('47.80');
+    expect(normalizeAmountText('$ 9.75')).toBe('9.75');
+    expect(normalizeAmountText('PKR 1234.50')).toBe('1234.50');
+    expect(normalizeAmountText('  2887.50  ')).toBe('2887.50');
+  });
+
+  // The common case that broke on a real receipt.
+  it('removes thousands separators', () => {
+    expect(normalizeAmountText('1,234.50')).toBe('1234.50');
+    expect(normalizeAmountText('Rs 3,450.75')).toBe('3450.75');
+    expect(normalizeAmountText('12,345,678.90')).toBe('12345678.90');
+    expect(normalizeAmountText('1,234')).toBe('1234');
+  });
+
+  // Much of the world writes 1.234,56 for what others write 1,234.56.
+  it('handles a decimal comma', () => {
+    expect(normalizeAmountText('1.234,56')).toBe('1234.56');
+    expect(normalizeAmountText('47,80')).toBe('47.80');
+    expect(normalizeAmountText('1.234.567,89')).toBe('1234567.89');
+  });
+
+  // When both separators appear, the RIGHTMOST one is the decimal point.
+  // That rule is unambiguous and needs no locale guess.
+  it('treats the rightmost separator as the decimal point', () => {
+    expect(normalizeAmountText('1,234.50')).toBe('1234.50');
+    expect(normalizeAmountText('1.234,50')).toBe('1234.50');
+  });
+
+  // A single separator with exactly three digits after it is genuinely
+  // ambiguous: "1,005" is one thousand and five, or one point zero zero five,
+  // depending on where you are. Refusing beats a 1000x error either way.
+  it('returns null when a single separator is truly ambiguous', () => {
+    expect(normalizeAmountText('1,005')).toBeNull();
+    expect(normalizeAmountText('1.005')).toBeNull();
+  });
+
+  it('rejects anything that is not a number', () => {
+    expect(normalizeAmountText('')).toBeNull();
+    expect(normalizeAmountText('abc')).toBeNull();
+    expect(normalizeAmountText('Rs')).toBeNull();
+    expect(normalizeAmountText('1.2.3.4')).toBeNull();
+    expect(normalizeAmountText(null)).toBeNull();
+    expect(normalizeAmountText(undefined)).toBeNull();
+  });
+
+  // "/-" after an amount is everyday notation on South Asian receipts, and
+  // the user lives in Pakistan -- this is not an exotic edge case for them.
+  it('strips trailing /- and similar notation', () => {
+    expect(normalizeAmountText('Rs 1850/-')).toBe('1850');
+    expect(normalizeAmountText('1,850/-')).toBe('1850');
+    expect(normalizeAmountText('Rs. 3,450.75/-')).toBe('3450.75');
+    expect(normalizeAmountText('1850/=')).toBe('1850');
+  });
+
+  // A trailing dash alone is the same idea.
+  it('strips a trailing dash', () => {
+    expect(normalizeAmountText('1850-')).toBe('1850');
+  });
+
+  it('rejects negatives -- a receipt total is never below zero', () => {
+    expect(normalizeAmountText('-12.00')).toBeNull();
+  });
+
+  it('feeds parseAmountToMinor correctly for the currencies that differ', () => {
+    expect(parseAmountToMinor(normalizeAmountText('Rs 3,450.75')!, 'PKR')).toBe(345075);
+    expect(parseAmountToMinor(normalizeAmountText('1.234,56')!, 'EUR')).toBe(123456);
+    expect(parseAmountToMinor(normalizeAmountText('¥3,450')!, 'JPY')).toBe(3450);
   });
 });

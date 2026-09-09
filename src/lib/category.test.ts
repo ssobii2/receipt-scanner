@@ -4,7 +4,7 @@ import { CATEGORIES, getCategory } from './category';
 const learned = { 'imtiaz super market': 'Groceries', 'careem': 'Transport' } as const;
 
 describe('CATEGORIES', () => {
-  it('is the fixed list the Gemini schema is constrained to', () => {
+  it('is the fixed list the extraction schema is constrained to', () => {
     expect([...CATEGORIES]).toEqual([
       'Groceries', 'Eating out', 'Transport', 'Utilities', 'Shopping', 'Health', 'Other',
     ]);
@@ -56,6 +56,6 @@ describe('getCategory prototype safety', () => {
   });
 
   it('still finds a genuinely learned key with an awkward name', () => {
-    expect(getCategory('constructor', 'Groceries', { constructor: 'Shopping' })).toBe('Shopping');
+    expect(getCategory('constructor', 'Groceries', { constructor: 'Shopping' } as const)).toBe('Shopping');
   });
 });

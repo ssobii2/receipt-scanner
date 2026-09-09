@@ -3,7 +3,7 @@ import { validateExtraction, isEmptyExtraction } from './extract';
 
 const today = '2026-09-09';
 
-// Wire shape from Gemini. total_value is the model-normalised canonical decimal
+// Wire shape from the extraction model. total_value is the model-normalised canonical decimal
 // ('.' separator, no grouping); total_text is the literal string it read, kept so
 // a wrong read is visible to the user rather than mysterious.
 const good = {
@@ -100,7 +100,7 @@ describe('isEmptyExtraction', () => {
 });
 
 describe('validateExtraction type strictness', () => {
-  // The Gemini responseSchema declares total_value as a string. Accepting a
+  // The extraction model's response schema declares total_value as a string. Accepting a
   // JSON number instead would route the amount through float64 before we ever
   // see it, defeating the string-math parser. Strict here surfaces schema
   // drift as an empty field the user fills, not as a silently wrong total.
@@ -115,5 +115,56 @@ describe('validateExtraction type strictness', () => {
       today,
     );
     expect(isEmptyExtraction(e)).toBe(true);
+  });
+});
+
+// Measured on real and hard test receipts: many print bare numbers with no
+// currency symbol or code anywhere, and the model correctly answers
+// currency: null. The exponent is then unknown, so amountMinor must stay
+// null -- but throwing the total away entirely is wrong. Keeping the
+// normalised digits lets the form pair them with the currency the user has
+// selected (PKR by default) and show an amount they can confirm.
+describe('totalValueRaw', () => {
+  const wire = (over: Record<string, unknown> = {}) => ({
+    merchant: 'Cafe Zouk', total_value: '4830.00', total_text: '4830.00',
+    currency: null, date_iso: '2026-09-08', date_text: '08 Sep 2026',
+    category: 'Eating out', ...over,
+  });
+
+  it('keeps the normalised total even when the currency is unknown', () => {
+    const e = validateExtraction(wire(), '2026-09-09');
+    expect(e.currency).toBeNull();
+    expect(e.amountMinor).toBeNull();     // exponent unknowable, as before
+    expect(e.totalValueRaw).toBe('4830.00');
+  });
+
+  it('normalises grouping separators and symbols into it', () => {
+    expect(validateExtraction(wire({ total_value: 'Rs 3,450.75' }), '2026-09-09').totalValueRaw)
+      .toBe('3450.75');
+    expect(validateExtraction(wire({ total_value: '1.234,56' }), '2026-09-09').totalValueRaw)
+      .toBe('1234.56');
+  });
+
+  // The same normalisation must reach amountMinor when the currency IS known
+  // -- this is the case that came back blank on a real receipt.
+  it('parses a grouped total when the currency is known', () => {
+    const e = validateExtraction(wire({ total_value: 'Rs 3,450.75', currency: 'PKR' }), '2026-09-09');
+    expect(e.amountMinor).toBe(345075);
+    expect(e.currency).toBe('PKR');
+  });
+
+  it('is null when there is no usable total at all', () => {
+    expect(validateExtraction(wire({ total_value: null }), '2026-09-09').totalValueRaw).toBeNull();
+    expect(validateExtraction(wire({ total_value: 'not a number' }), '2026-09-09').totalValueRaw).toBeNull();
+  });
+
+  it('stays null for an ambiguous separator rather than guessing', () => {
+    expect(validateExtraction(wire({ total_value: '1,005' }), '2026-09-09').totalValueRaw).toBeNull();
+  });
+
+  it('is included in the all-null empty extraction', () => {
+    const empty = validateExtraction('not an object', '2026-09-09');
+    expect(empty.totalValueRaw).toBeNull();
+    expect(isEmptyExtraction(empty)).toBe(true);
   });
 });

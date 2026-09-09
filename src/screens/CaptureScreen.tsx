@@ -1,15 +1,22 @@
-// Minimal pipeline-proving screen: capture or pick an image, persist it
-// permanently, and show the resulting path. Not final UI.
+// Capture/pick an image, persist it permanently, and hand the resulting path
+// back to the caller. Owns no confirm/preview step of its own -- that lives
+// in EntryScreen, which shows the thumbnail and offers "Remove photo".
 import { useRef, useState } from 'react';
-import { SafeAreaView, View, Text, Pressable, Image, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
-import { persistImage, deleteImage } from '../lib/images';
+import { persistImage } from '../lib/images';
+import { colors } from '../theme';
 
-export default function CaptureScreen() {
+type Props = {
+  onCaptured: (uri: string) => void;
+  onCancel: () => void;
+};
+
+export default function CaptureScreen({ onCaptured, onCancel }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [showCamera, setShowCamera] = useState(false);
-  const [uri, setUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cameraRef = useRef<CameraView>(null);
 
@@ -31,7 +38,7 @@ export default function CaptureScreen() {
       setShowCamera(false);
       if (!photo) return;
       const saved = await persistImage(photo.uri);
-      setUri(saved);
+      onCaptured(saved);
     } catch (e) {
       setShowCamera(false);
       setError(`Failed to capture photo: ${String(e)}`);
@@ -49,19 +56,9 @@ export default function CaptureScreen() {
       const result = await ImagePicker.launchImageLibraryAsync();
       if (result.canceled) return;
       const saved = await persistImage(result.assets[0].uri);
-      setUri(saved);
+      onCaptured(saved);
     } catch (e) {
       setError(`Failed to pick image: ${String(e)}`);
-    }
-  }
-
-  async function clear() {
-    try {
-      if (uri) await deleteImage(uri);
-      setUri(null);
-      setError(null);
-    } catch (e) {
-      setError(`Failed to delete image: ${String(e)}`);
     }
   }
 
@@ -83,7 +80,7 @@ export default function CaptureScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Capture Receipt</Text>
+      <Text style={styles.title}>Add photo</Text>
       <View style={styles.row}>
         <Pressable style={styles.button} onPress={openCamera}>
           <Text style={styles.buttonText}>Take photo</Text>
@@ -95,31 +92,25 @@ export default function CaptureScreen() {
 
       {error && <Text style={styles.error}>{error}</Text>}
 
-      {uri && (
-        <View style={styles.result}>
-          <Image source={{ uri }} style={styles.preview} />
-          <Text style={styles.path}>{uri}</Text>
-          <Pressable style={styles.button} onPress={clear}>
-            <Text style={styles.buttonText}>Clear</Text>
-          </Pressable>
-        </View>
-      )}
+      <Pressable style={styles.cancelLink} onPress={onCancel}>
+        <Text style={styles.cancelText}>Cancel</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, padding: 16, backgroundColor: '#fff' },
-  title: { fontSize: 22, fontWeight: '600', marginBottom: 16 },
+  container: { flex: 1, backgroundColor: colors.background, padding: 16 },
+  title: { fontSize: 22, fontWeight: '600', marginBottom: 16, color: colors.text },
   row: { flexDirection: 'row', gap: 12 },
   button: {
-    backgroundColor: '#222',
+    backgroundColor: colors.accent,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
   },
-  buttonText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  buttonText: { color: colors.accentText, fontSize: 15, fontWeight: '500' },
   cameraControls: {
     position: 'absolute',
     bottom: 32,
@@ -129,8 +120,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 16,
   },
-  error: { color: '#c0392b', marginTop: 12, fontSize: 14 },
-  result: { marginTop: 20, gap: 8, alignItems: 'flex-start' },
-  preview: { width: 220, height: 220, borderRadius: 8, backgroundColor: '#eee' },
-  path: { fontFamily: 'monospace', fontSize: 11, color: '#444' },
+  error: { color: colors.danger, marginTop: 12, fontSize: 14 },
+  cancelLink: { marginTop: 24 },
+  cancelText: { color: colors.textMuted, fontSize: 15 },
 });

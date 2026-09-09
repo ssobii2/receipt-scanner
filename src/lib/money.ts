@@ -65,6 +65,81 @@ export function parseAmountToMinor(value: string, currency: string): number | nu
   return Number(combined);
 }
 
+/** Turns printed money into the canonical decimal form `parseAmountToMinor`
+ * demands (`.` decimal, no grouping), or null when the input is genuinely
+ * ambiguous or not a number. `parseAmountToMinor` itself stays strict --
+ * this is the explicit normalisation step in front of it, for the real
+ * receipts that don't print the canonical form the model was asked for. */
+export function normalizeAmountText(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+
+  // South Asian receipts commonly total with "1850/-" or "1850/=" (the dash
+  // marks "no paisa"), or a bare trailing "1850-". Strip that notation up
+  // front, before the general symbol stripping below removes the "/" and
+  // leaves a bare trailing dash indistinguishable from a negative sign. The
+  // pattern only matches at the very end of the string, so a LEADING minus
+  // ("-12.00", a genuine negative) is untouched and still rejected below.
+  const withoutTrailingNotation = raw.trim().replace(/\/?[-=]\s*$/, '');
+
+  // Drop currency words/codes and a trailing abbreviation dot ("Rs.", "PKR"),
+  // then drop everything left that isn't a digit, separator, or minus sign
+  // (symbols, whitespace, stray punctuation).
+  const stripped = withoutTrailingNotation
+    .replace(/\p{L}+\.?/gu, ' ')
+    .replace(/[^0-9.,-]/g, '');
+  if (stripped.length === 0) return null;
+  if (stripped.includes('-')) return null; // reject negatives outright
+
+  const dotCount = (stripped.match(/\./g) ?? []).length;
+  const commaCount = (stripped.match(/,/g) ?? []).length;
+
+  let digits: string;
+
+  if (dotCount === 0 && commaCount === 0) {
+    digits = stripped;
+  } else if (dotCount > 0 && commaCount > 0) {
+    // Both separators appear: the rightmost one is the decimal point, the
+    // other is grouping. No locale guess needed -- the position settles it.
+    const decimalChar = stripped.lastIndexOf('.') > stripped.lastIndexOf(',') ? '.' : ',';
+    const groupChar = decimalChar === '.' ? ',' : '.';
+    const decimalCount = decimalChar === '.' ? dotCount : commaCount;
+    if (decimalCount !== 1) return null; // more than one decimal separator: invalid
+    digits = stripped.split(groupChar).join('').replace(decimalChar, '.');
+  } else {
+    // Exactly one separator type, possibly repeated.
+    const sep = dotCount > 0 ? '.' : ',';
+    const count = dotCount > 0 ? dotCount : commaCount;
+    const parts = stripped.split(sep);
+    if (count === 1) {
+      const [intPart, fracPart] = parts;
+      if (fracPart.length === 0) return null; // trailing separator, no digits after
+      if (fracPart.length === 3) {
+        // A lone separator followed by exactly three digits is ambiguous
+        // in general ("1,005" / "1.005") -- a leading zero on the group
+        // means it could equally be a thousands group (1005) or a genuine
+        // fraction (x.005), so refuse rather than guess. Without a leading
+        // zero, fall back to the canonical role of each character: comma
+        // reads as grouping ("1,234" -> 1234, the common receipt case),
+        // dot reads as decimal ("12.345" -> a 3-decimal currency like KWD,
+        // which parseAmountToMinor already expects '.' for).
+        if (fracPart[0] === '0') return null;
+        digits = sep === ',' ? intPart + fracPart : `${intPart}.${fracPart}`;
+      } else {
+        digits = `${intPart}.${fracPart}`;
+      }
+    } else {
+      // Repeated grouping separator with no decimal shown at all -- every
+      // group after the first must be exactly three digits, like real
+      // thousands grouping.
+      const [first, ...rest] = parts;
+      if (first.length === 0 || first.length > 3 || rest.some((g) => g.length !== 3)) return null;
+      digits = parts.join('');
+    }
+  }
+
+  return /^\d+(\.\d+)?$/.test(digits) ? digits : null;
+}
+
 /** Formats integer minor units as a localized currency string. Fraction
  * digits are pinned to the ISO exponent (not left to the host's CLDR data)
  * so display always matches how the value is stored. */

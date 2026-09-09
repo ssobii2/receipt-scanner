@@ -5,7 +5,7 @@ Spec: `docs/superpowers/specs/2026-09-09-receipt-scanner-design.md`
 **Roles** — Opus: tests + verification. Sonnet subagents: implementation.
 User: plans, guides, tests camera + iOS look on the real iPhone.
 
-**Now:** slice 4 — extraction module done and proven live; UI wiring next.
+**Now:** slice 6 — charts. Slice 5 deferred on evidence (see below).
 
 ---
 
@@ -39,6 +39,13 @@ Each ends runnable on the phone. `[x]` only when its proof passed.
   - YOU: iPhone — wheels in a bottom sheet still to verify.
   - Fixed en route: TextInput has no inherited colour in RN and defaults to
     near-black, so typed text was invisible until `color` was set explicitly.
+  - Tried and reverted: native Android spinner for currency. It themes fine
+    (per-item `style` crosses the bridge; the rows really do go dark), but a
+    native widget brings its own layout — reserved caret, padding, minimum
+    height — and the field is 90px, so only the caret rendered. Two distinct
+    ceilings, worth not confusing: the date dialog CANNOT be themed at all,
+    while the spinner themes and simply does not fit. Native currency is only
+    viable with bare-code labels (`PKR`), losing the names.
 - [x] **4 · The app reads the receipt** — `extractReceipt()` prefills the form
   - Provider: OpenAI Responses API, `gpt-5.6-luna`, strict JSON schema, every
     field nullable. ~0.03c per scan.
@@ -67,12 +74,27 @@ Each ends runnable on the phone. `[x]` only when its proof passed.
     - a receipt with no currency printed anywhere made us throw the total
       away too; now the digits survive and pair with the selected currency
     - `Rs 1850/-` is everyday notation here and produced a blank
+  - Non-receipt photos (a text screenshot, a cat) used to leave a silently
+    blank form. Now `hasUsableTotal()` gates a calm, dismissable notice.
+    `isEmptyExtraction` was too strict for this — a non-receipt often still
+    yields a plausible merchant from a heading, so all-null never tripped.
+    No Retry on it: re-reading the same photo costs a call to get the same
+    answer.
+  - Total includes tax and tips, confirmed intended. Not a bug.
   - Upload now downscales to <=1600px (a 130-item receipt reads fine at
     160px wide). Full-resolution photo is still what gets saved. The
     intermittent "no internet" was very likely a multi-MB upload passing
     the 15s timeout, since an abort reports as offline.
-- [ ] **5 · Categories** — LLM guesses, corrections stick
-  - proof: correct a merchant, rescan it, remembered
+- [ ] **5 · Categories** — DEFERRED, not abandoned. Every receipt so far was
+  categorised correctly, so this fixes a problem not yet observed. Lib, SQL
+  and tests already exist and are committed; wiring is ~20 lines whenever
+  it's wanted. Editing one receipt's category already works — only
+  cross-receipt memory is missing.
+  - Build charts first: the failure this prevents (one merchant split across
+    two categories by an unstable model) is invisible in the list and obvious
+    in a chart. Building the fix before the instrument means never learning
+    whether it was needed.
+  - proof, when built: correct a merchant, rescan it, remembered
   - tests: precedence, merchant-key normalisation (Urdu/Arabic/Chinese)
 - [ ] **6 · Charts** — monthly bars, tap for category breakdown
   - proof: chart numbers match the list

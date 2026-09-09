@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { validateExtraction, isEmptyExtraction } from './extract';
+import { validateExtraction, isEmptyExtraction, hasUsableTotal } from './extract';
 
 const today = '2026-09-09';
 
@@ -166,5 +166,41 @@ describe('totalValueRaw', () => {
     const empty = validateExtraction('not an object', '2026-09-09');
     expect(empty.totalValueRaw).toBeNull();
     expect(isEmptyExtraction(empty)).toBe(true);
+  });
+});
+
+// The user photographed a text screenshot, got a silently blank form, and
+// asked for some signal. isEmptyExtraction is too strict for that: a
+// non-receipt often still yields a plausible merchant from some heading, so
+// every-field-null never trips. Recording an amount is the point of the app,
+// so "no total" is the signal that the scan gave the user nothing usable.
+describe('hasUsableTotal', () => {
+  it('is true when the total parsed to a scaled amount', () => {
+    expect(hasUsableTotal(validateExtraction(good, today))).toBe(true);
+  });
+
+  it('is true when digits were read but the currency was not', () => {
+    // amountMinor is null here (no exponent without a currency) yet the
+    // digits still prefill the form, so this is not a failed scan.
+    const e = validateExtraction({ ...good, currency: null }, today);
+    expect(e.amountMinor).toBeNull();
+    expect(e.totalValueRaw).not.toBeNull();
+    expect(hasUsableTotal(e)).toBe(true);
+  });
+
+  it('is false for a photo of something that is not a receipt', () => {
+    expect(hasUsableTotal(validateExtraction('not an object', today))).toBe(false);
+  });
+
+  it('is false when a merchant was read but no total was', () => {
+    // The text-screenshot case: enough text to guess a name, no money on it.
+    const e = validateExtraction({ ...good, total_value: null, total_text: null }, today);
+    expect(e.merchant).not.toBeNull();
+    expect(isEmptyExtraction(e)).toBe(false);
+    expect(hasUsableTotal(e)).toBe(false);
+  });
+
+  it('is false when the total was unparseable rather than absent', () => {
+    expect(hasUsableTotal(validateExtraction({ ...good, total_value: 'not a number' }, today))).toBe(false);
   });
 });

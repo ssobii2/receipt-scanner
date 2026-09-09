@@ -26,6 +26,7 @@ import { merchantKey } from '../lib/merchant';
 import { CATEGORIES, type Category } from '../lib/category';
 import { MAJOR_CURRENCIES } from '../lib/currencies';
 import { extractReceiptFromPhoto } from '../lib/extractReceiptLive';
+import { hasUsableTotal } from '../lib/extract';
 import type { ExtractResult } from '../lib/openai';
 import { colors } from '../theme';
 
@@ -147,6 +148,12 @@ export default function EntryScreen({ receipt, imageUri, onDone, onCapture }: Pr
 
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<ExtractFailure | null>(null);
+  // Separate from extractError: this is a successful request that read no
+  // usable total, not a failed request. extractError is typed ExtractFailure
+  // and drives the Retry banner -- folding this into it would put this
+  // notice behind that same Retry logic and mislabel a disappointing answer
+  // as a request failure.
+  const [noTotalNotice, setNoTotalNotice] = useState(false);
   // Guards against re-extracting the same photo on every re-render; the
   // Retry button bypasses this by calling runExtraction directly.
   const extractedUriRef = useRef<string | null>(null);
@@ -154,6 +161,7 @@ export default function EntryScreen({ receipt, imageUri, onDone, onCapture }: Pr
   async function runExtraction(targetUri: string) {
     setExtracting(true);
     setExtractError(null);
+    setNoTotalNotice(false);
     const result = await extractReceiptFromPhoto(targetUri);
     setExtracting(false);
 
@@ -163,6 +171,7 @@ export default function EntryScreen({ receipt, imageUri, onDone, onCapture }: Pr
     }
 
     const e = result.extraction;
+    if (!hasUsableTotal(e)) setNoTotalNotice(true);
     if (e.merchant !== null && !userEdited.current.merchant) setMerchant(e.merchant);
     if (e.spentOn !== null && !userEdited.current.date) setDate(e.spentOn);
     if (e.category !== null && !userEdited.current.category) setCategory(e.category);
@@ -338,6 +347,22 @@ export default function EntryScreen({ receipt, imageUri, onDone, onCapture }: Pr
               )}
               <Pressable onPress={() => setExtractError(null)}>
                 <Text style={styles.extractErrorAction}>Dismiss</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* Calmer than extractErrorBox on purpose: the request succeeded, it
+            just didn't find a total. No Retry -- the same photo will almost
+            certainly read the same way, so Dismiss is the honest default. */}
+        {noTotalNotice && (
+          <View style={styles.noTotalBox}>
+            <Text style={styles.noTotalText}>
+              Couldn’t read a total from that photo. Enter it manually.
+            </Text>
+            <View style={styles.extractErrorActions}>
+              <Pressable onPress={() => setNoTotalNotice(false)}>
+                <Text style={styles.noTotalAction}>Dismiss</Text>
               </Pressable>
             </View>
           </View>
@@ -565,6 +590,18 @@ const styles = StyleSheet.create({
   extractErrorText: { color: colors.text, fontSize: 14 },
   extractErrorActions: { flexDirection: 'row', gap: 20 },
   extractErrorAction: { color: colors.danger, fontSize: 14, fontWeight: '600' },
+  // Same box layout as extractErrorBox, but bordered in textMuted rather than
+  // danger -- this is information, not a failure.
+  noTotalBox: {
+    borderWidth: 1,
+    borderColor: colors.textMuted,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  noTotalText: { color: colors.text, fontSize: 14 },
+  noTotalAction: { color: colors.accent, fontSize: 14, fontWeight: '600' },
   rowFields: { flexDirection: 'row', gap: 12 },
   flex1: { flex: 1 },
   currencyField: { width: 90 },

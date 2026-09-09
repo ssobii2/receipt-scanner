@@ -86,3 +86,11 @@ export function validateExtraction(raw: unknown, today: string): Extraction {
 export function isEmptyExtraction(e: Extraction): boolean {
   return Object.values(e).every((v) => v === null);
 }
+
+/** True when a total was actually read off the receipt -- including the
+ * no-currency case, where totalValueRaw still prefills the amount field.
+ * amountMinor is only ever set alongside totalValueRaw, so checking the raw
+ * digits alone covers both. */
+export function hasUsableTotal(e: Extraction): boolean {
+  return e.totalValueRaw !== null;
+}

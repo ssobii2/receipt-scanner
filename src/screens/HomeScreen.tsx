@@ -23,12 +23,13 @@ function monthLabel(month: string): string {
 }
 
 type Props = {
+  reloadToken: number;
   onAdd: () => void;
   onEdit: (receipt: ReceiptRow) => void;
   onCharts: () => void;
 };
 
-export default function HomeScreen({ onAdd, onEdit, onCharts }: Props) {
+export default function HomeScreen({ reloadToken, onAdd, onEdit, onCharts }: Props) {
   const insets = useSafeAreaInsets();
   const [receipts, setReceipts] = useState<ReceiptRow[] | null>(null);
   const [totals, setTotals] = useState<MonthTotal[]>([]);
@@ -48,7 +49,9 @@ export default function HomeScreen({ onAdd, onEdit, onCharts }: Props) {
 
   useEffect(() => {
     load();
-  }, [load]);
+    // reloadToken changes when the adapter regains focus after Home was
+    // revealed (not remounted) by a stack pop -- see App.tsx's HomeRoute.
+  }, [load, reloadToken]);
 
   async function onRefresh() {
     setRefreshing(true);

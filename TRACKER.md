@@ -148,6 +148,16 @@ edge-swipe at all. Neither is buildable on a hand-rolled stack.
 - `navigate` to a route already in the stack REPLACES its params (merging needs
   `merge: true`), which is what makes the camera round trip deliver a fresh
   `imageUri` so extraction re-fires. Checked in the router source, not assumed.
+- Regression the swap caused, found in use: Home stopped showing a new receipt
+  until pull-to-refresh. `load` is a `useCallback([], ...)`, so
+  `useEffect(..., [load])` fires once per MOUNT — and the old useState union
+  unmounted Home on every navigation, so the reload was an accident nobody had
+  written down. A stack keeps Home mounted underneath, so the accident stopped.
+  No test or type could have caught it: nothing in the code ever claimed
+  "reload on return". Fixed with `useFocusEffect` in App.tsx's HomeRoute
+  bumping a `reloadToken` prop, keeping screens navigation-agnostic; the first
+  focus is skipped so launch still loads exactly once. Charts was never
+  affected — it is pushed and popped, so it genuinely remounts each visit.
 - No `linking` config, deliberately: it pulls `query-string` -> a
   `decode-uri-component` ReDoS advisory. Not in the runtime path while we never
   parse URLs. That is 7 of the 17 moderate npm advisories; the other 10 are the

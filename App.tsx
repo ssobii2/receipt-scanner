@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useFocusEffect } from '@react-navigation/native';
 import { createNativeStackNavigator, type NativeStackScreenProps } from '@react-navigation/native-stack';
 import { initDb, type ReceiptRow } from './src/db';
 import HomeScreen from './src/screens/HomeScreen';
@@ -33,8 +33,25 @@ type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function HomeRoute({ navigation }: NativeStackScreenProps<RootStackParamList, 'home'>) {
+  // The native stack keeps 'home' mounted underneath 'entry', so popping back
+  // to it doesn't remount HomeScreen or re-run its load effect the way the
+  // old useState-union navigation did by accident. Bump a token on focus to
+  // force a reload; skip the first focus (mount) so startup still loads once.
+  const [reloadToken, setReloadToken] = useState(0);
+  const isInitialFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (isInitialFocus.current) {
+        isInitialFocus.current = false;
+        return;
+      }
+      setReloadToken((t) => t + 1);
+    }, [])
+  );
+
   return (
     <HomeScreen
+      reloadToken={reloadToken}
       onAdd={() => navigation.navigate('entry')}
       onEdit={(receipt) => navigation.navigate('entry', { receipt })}
       onCharts={() => navigation.navigate('charts')}

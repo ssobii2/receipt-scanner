@@ -1,0 +1,88 @@
+workflows:
+  unsigned-ipa:
+    name: Unsigned iOS IPA
+    # Default is 60; raised because a first cold build (npm ci + expo
+    # prebuild + pod install + a full native Release compile with no warm
+    # cache) can approach 60 minutes and get killed mid-build. This is a
+    # ceiling, not a cost - the free plan's 500 minutes/month are consumed
+    # by actual build time, so a higher cap doesn't spend more minutes, it
+    # only avoids a premature kill.
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      cocoapods: default
+      # Pinned precisely (not a bare major) because npm 12.0.2 breaks Expo
+      # tooling in two places (`create-expo-app` and `npx expo install`,
+      # which fails with EALLOWSCRIPTS). node v22.11.0 ships npm 10.9,
+      # safely below that - floating on a bare major could drift onto a
+      # node build carrying npm 12 and break `npm ci`/prebuild in a way
+      # that's confusing to diagnose.
+      node: v22.11.0
+      groups:
+        # Create this group in the Codemagic UI: Settings > Environment variables >
+        # add group "openai" containing EXPO_PUBLIC_OPENAI_API_KEY, marked secure.
+        # Never hardcode the real key here - expo inlines EXPO_PUBLIC_* vars into
+        # the JS bundle at build time.
+        - openai
+    scripts:
+      - name: Check required environment variables
+        script: |
+          if [ -z "$EXPO_PUBLIC_OPENAI_API_KEY" ]; then
+            echo "EXPO_PUBLIC_OPENAI_API_KEY is not set - check the 'openai' environment group in Codemagic" >&2
+            exit 1
+          fi
+
+      - name: Install JS dependencies
+        script: npm ci
+
+      - name: Prebuild native iOS project
+        # ios/ is gitignored - continuous native generation regenerates it here
+        # on every build instead of committing generated native code.
+        script: npx expo prebuild -p ios
+
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+
+      - name: Build Release .app (unsigned)
+        script: |
+          cd ios
+          # Debug builds don't embed the JS bundle - they load it from a Metro
+          # dev server, so the IPA would red-screen the moment the dev
+          # machine is off. Release embeds the bundle for a standalone app.
+          # -derivedDataPath pins the build output to a known path instead of
+          # relying on Xcode's default (unpredictable) DerivedData location.
+          # Expo derives this scheme name from app.json's "name" field
+          # ("Rasid") - it only changes if the app is renamed. Hardcoded
+          # deliberately: after `pod install`, `xcodebuild -list` also lists
+          # the CocoaPods schemes, so dynamic discovery concatenates them
+          # into one bad -scheme value. A wrong literal here fails loudly
+          # and immediately instead of confusingly.
+          xcodebuild \
+            -workspace Rasid.xcworkspace \
+            -scheme "Rasid" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$CM_BUILD_DIR/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        script: |
+          # An unsigned IPA is just a zip of Payload/<AppName>.app - there's
+          # no signing identity to produce a "real" archive/export with, so
+          # we build the .ipa structure by hand instead of `xcodebuild -exportArchive`.
+          cd "$CM_BUILD_DIR"
+          APP_PATH=$(find build/Build/Products -maxdepth 2 -name "*.app" | head -1)
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r "$CM_BUILD_DIR/unsigned.ipa" Payload
+    artifacts:
+      - unsigned.ipa
+      # Xcode build logs, collected so a failed first build can be
+      # diagnosed from the Codemagic artifacts UI instead of blind-guessing.
+      - /tmp/xcodebuild_logs/*.log

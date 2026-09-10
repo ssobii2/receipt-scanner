@@ -163,6 +163,46 @@ edge-swipe at all. Neither is buildable on a hand-rolled stack.
   parse URLs. That is 7 of the 17 moderate npm advisories; the other 10 are the
   pre-existing `uuid` via `xcode` via `@expo/config-plugins`, prebuild-only.
 
+## Shipping as a standalone app
+
+Runs on the iPhone as **Rasid** (`com.ssobii2.rasid`), outside Expo Go. Works
+flawlessly on device -- camera, scan, save, charts.
+
+- No Mac, no $99 account. Apple gates SIGNING, not building: Codemagic's cloud
+  macOS runner compiles an UNSIGNED ipa, SideStore signs it on-device with a
+  free Apple ID, LiveContainer runs it as a guest so it costs none of the free
+  tier's 3 app slots. Signing is post-processing on a finished bundle, not part
+  of compilation, which is why the two halves can happen on different machines.
+- `codemagic.yaml`, free plan (500 macOS-M2 min/month). Release, NOT Debug: a
+  Debug RN build does not embed the JS bundle and reaches for Metro, so the ipa
+  would red-screen whenever the laptop is off. An unsigned ipa is just a zip of
+  `Payload/Rasid.app`, so it is assembled by hand rather than via
+  `xcodebuild -exportArchive`, which exists to apply a signature we do not have.
+- Scheme hardcoded as `Rasid`: after `pod install`, `xcodebuild -list` also
+  reports the CocoaPods schemes, so dynamic discovery concatenates them into one
+  invalid `-scheme`. Node pinned to v22.11.0 -- npm 12 breaks `expo install`
+  (see Notes) and a bare major could drift onto it. A guard fails the build in
+  seconds when `EXPO_PUBLIC_OPENAI_API_KEY` is empty, since an unset key
+  otherwise yields a valid ipa whose every scan fails on the phone.
+- The Expo Go theming ceiling is GONE here: `userInterfaceStyle: "dark"` works
+  because a standalone build is its own host activity. The old note was right
+  that it was immovable -- but it was immovable because the host was Expo Go,
+  and that stopped being true. Worth remembering the reason a limit exists, not
+  just that it does.
+- App icons must be opaque; iOS renders alpha as black. Source art was RGBA
+  with real transparency, flattened onto `#121212` (the app background) and
+  resized to 1024. Verified against the iOS squircle mask before shipping.
+- Verified in the built ipa before install: `main.jsbundle` embedded (proves
+  Release), bundle id, display name, `UIUserInterfaceStyle=Dark`, both
+  permission strings, and that the API key actually reached the bundle.
+- The key is inlined in the ipa and extractable with one regex -- same exposure
+  as the Expo Go bundle, but an ipa is a portable file. Do not share it.
+- Repo stays `receipt-scanner`; renaming it would break the Codemagic link.
+- Not done, deliberately: splash screen. Expo's unconfigured default is white,
+  but LiveContainer never shows the guest's launch storyboard, so no flash is
+  visible in practice. Fixing it would add an `expo-splash-screen` dependency
+  for a problem that does not occur.
+
 ## Lib layer
 
 - [x] money · dates · merchant · category · extract · currencies · gemini — 100 tests
